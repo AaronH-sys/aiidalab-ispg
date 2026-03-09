@@ -280,6 +280,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         mdci_params["input_blocks"]["mdci"] = {
             "nroots": nroots,
             "maxcore": MEMORY_PER_CPU,
+            "donto": True,
         }
         # TODO: For efficiency reasons, in might not be necessary to calculated left-vectors
         # to obtain TDM, but we need to benchmark that first.
@@ -297,6 +298,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         tddft_params["input_blocks"]["tddft"] = {
             "nroots": nroots,
             "maxcore": MEMORY_PER_CPU,
+            "donto": True,
         }
         if es_method == ExcitedStateMethod.TDDFT:
             tddft_params["input_blocks"]["tddft"]["tda"] = "false"
