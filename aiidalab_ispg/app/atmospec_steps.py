@@ -280,6 +280,8 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         mdci_params["input_blocks"]["mdci"] = {
             "nroots": nroots,
             "maxcore": MEMORY_PER_CPU,
+            
+            # Calculate nto flag
             "donto": True,
         }
         # TODO: For efficiency reasons, in might not be necessary to calculated left-vectors
@@ -298,6 +300,8 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         tddft_params["input_blocks"]["tddft"] = {
             "nroots": nroots,
             "maxcore": MEMORY_PER_CPU,
+            
+            # Calculate nto flag
             "donto": True,
         }
         if es_method == ExcitedStateMethod.TDDFT:
@@ -380,6 +384,9 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         # Fetch GBW file from optimization step, to be used as a guess
         # for subsequent excited state calculations.
         builder.opt.orca.metadata.options.additional_retrieve_list = ["aiida.gbw"]
+        
+        # Retrieve .nto files
+        builder.exc.orca.metadata.options.additional_retrieve_list = ["*.nto"]
 
         # Clean the remote directory by default,
         # we're copying back the main output file and gbw file anyway.
