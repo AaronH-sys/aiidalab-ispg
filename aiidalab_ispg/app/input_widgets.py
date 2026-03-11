@@ -293,6 +293,33 @@ class WignerSamplingSettings(ipw.VBox):
         self.wigner_low_freq_thr.value = self._LOW_FREQ_THR_DEFAULT
 
 
+class OrbitalSettings(ipw.VBox):
+    title = ipw.HTML(
+        """<div style="padding-top: 0px; padding-bottom: 0px">
+        <h4>Orbital Calculation</h4>
+        </div>"""
+    )
+
+    _CALCULATE_ORBITALS_DEFAULT = True
+
+    def __init__(self, **kwargs):
+        style = {"description_width": "initial"}
+        layout = ipw.Layout(max_width="250px")
+
+        self.calculate_orbitals = ipw.Checkbox(
+            value=self._CALCULATE_ORBITALS_DEFAULT,
+            description="Calculate Natural Transition Orbitals",
+            indent=False,
+            layout=layout,
+        )
+
+        super().__init__(
+            children=[self.title, self.calculate_orbitals]
+        )
+
+    def reset(self):
+        self.charge.value = self._CALCULATE_ORBITALS_DEFAULT
+
 class CodeSettings(ipw.VBox):
     codes_title = ipw.HTML(
         """<div style="padding-top: 10px; padding-bottom: 0px">
@@ -312,6 +339,7 @@ class CodeSettings(ipw.VBox):
             default_calc_job_plugin="orca.orca",
             description="ORCA program",
         )
+        
         super().__init__(
             children=[
                 self.codes_title,
