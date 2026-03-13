@@ -9,6 +9,7 @@ from aiida.engine import (
     if_,
     process_handler,
     run,
+    CalcJob
 )
 from aiida.orm import (
     Bool,
@@ -20,6 +21,7 @@ from aiida.orm import (
     StructureData,
     TrajectoryData,
     to_aiida_type,
+    FolderData,
 )
 from aiida.plugins import CalculationFactory, DataFactory, WorkflowFactory
 
@@ -33,9 +35,61 @@ from .utils import (
     structures_to_trajectory,
 )
 
+from aiida_shell import launch_shell_job
+
+import tempfile
+
 Code = DataFactory("core.code.installed")
 OrcaCalculation = CalculationFactory("orca.orca")
 OrcaBaseWorkChain = WorkflowFactory("orca.base")
+
+
+from aiida.common import CalcInfo, CodeInfo
+
+
+class OrcaPlotCalculation(CalcJob):
+    
+    def _build_process_label(self) -> str:
+        return "NTO->CUBE workflow"
+
+    @classmethod
+    def define(cls, spec):
+        super().define(spec)
+
+        spec.input('code', valid_type=Code)
+        spec.input('nto_file', valid_type=SinglefileData)
+        spec.input('plot_input', valid_type=SinglefileData)
+
+        spec.inputs['metadata']['options']['resources'].default = {
+            "num_machines": 1,
+            "num_mpiprocs_per_machine": 1,
+        }
+
+        spec.inputs['metadata']['options']['withmpi'].default = False
+
+        spec.output('retrieved')
+
+
+    def prepare_for_submission(self, folder):
+
+        with self.inputs.nto_file.open(mode='rb') as handle:
+            folder.create_file_from_filelike(handle, 'input.nto')
+
+        with self.inputs.plot_input.open(mode='rb') as handle:
+            folder.create_file_from_filelike(handle, 'input')
+
+        codeinfo = CodeInfo()
+        codeinfo.code_uuid = self.inputs.code.uuid
+        codeinfo.cmdline_params = ['input.nto', '-i']
+        codeinfo.stdin_name = 'input'
+
+        calcinfo = CalcInfo()
+        calcinfo.codes_info = [codeinfo]
+
+        # files to retrieve
+        calcinfo.retrieve_list = ['*.cube']
+
+        return calcinfo
 
 
 class OrcaExcitationWorkChain(OrcaBaseWorkChain):
@@ -47,20 +101,24 @@ class OrcaExcitationWorkChain(OrcaBaseWorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
+        
         spec.output(
             "excitations",
             valid_type=Dict,
             required=True,
             help="Excitation energies and oscillator strengths from a single-point excitations",
-        )
+        ) 
+        
 
     def extract_transitions_from_orca_output(self, orca_output_params):
+        
         return {
             "oscillator_strengths": orca_output_params["etoscs"],
             # Orca returns excited state energies in cm^-1
             # Perhaps we should do the conversion here,
             # to make this less ORCA specific.
             "excitation_energies_cm": orca_output_params["etenergies"],
+            
         }
 
     @process_handler(exit_codes=ExitCode(0), priority=600)
@@ -71,6 +129,7 @@ class OrcaExcitationWorkChain(OrcaBaseWorkChain):
         )
         self.out("excitations", Dict(transitions).store())
 
+        
 
 class OrcaWignerSpectrumWorkChain(WorkChain):
     """Top level workchain for Nuclear Ensemble Approach UV/vis
@@ -92,9 +151,14 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
             namespace="exc",
             exclude=["orca.structure", "orca.code"],
         )
+        
         spec.input("structure", valid_type=(StructureData, TrajectoryData))
+        
         spec.input("code", valid_type=Code)
-
+        
+        spec.input("plot_code", valid_type=Code)
+       
+       
         # Whether to perform geometry optimization
         spec.input(
             "optimize",
@@ -121,6 +185,8 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
             required=True,
             help="Output parameters from a single-point excitations",
         )
+        
+       
         spec.expose_outputs(
             RobustOptimizationWorkChain,
             namespace="opt",
@@ -142,6 +208,7 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
             ),
             cls.excite,
             cls.inspect_excitation,
+            cls.nto_to_cube,
             if_(cls.should_run_wigner)(
                 cls.wigner_sampling,
                 cls.wigner_excite,
@@ -182,7 +249,30 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
 
         calc_exc = self.submit(OrcaExcitationWorkChain, **inputs)
         calc_exc.label = "franck-condon-excitation"
-        return ToContext(calc_exc=calc_exc)
+        
+        return ToContext(calc_exc=calc_exc)   
+
+    def nto_to_cube(self):
+
+        with self.ctx.calc_exc.outputs.retrieved.base.repository.open(
+            "aiida.s1.nto", "rb"
+        ) as handler:
+            nto_file = SinglefileData(handler)
+
+        plot_input = SinglefileData.from_string(
+            "1\n1\n3\n0\n4\n120\n5\n7\n2\n4\n10\n11"
+        )
+
+        inputs = {
+            "code": self.inputs.plot_code,
+            "nto_file": nto_file,
+            "plot_input": plot_input,
+        }
+
+        calc = self.submit(OrcaPlotCalculation, **inputs)
+
+        return ToContext(calc_cube=calc)
+
 
     def wigner_sampling(self):
         self.report(f"Generating {self.inputs.nwigner.value} Wigner geometries")
@@ -257,6 +347,8 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
             self.report("Single point excitation failed :-(")
             return self.exit_codes.ERROR_EXCITATION_FAILED
         self.out("franck_condon_excitations", calc.outputs.excitations)
+        
+
 
     def inspect_wigner_excitation(self):
         """Check whether all wigner excitations succeeded"""
@@ -315,7 +407,10 @@ class AtmospecWorkChain(WorkChain):
         )
         for conf_id in self.inputs.structure.get_stepids():
             inputs.structure = self.inputs.structure.get_step_structure(conf_id)
+            
             workflow = self.submit(OrcaWignerSpectrumWorkChain, **inputs)
+           
+            
             workflow.label = f"atmospec-conf-{conf_id}"
             self.to_context(confs=append_(workflow))
 
