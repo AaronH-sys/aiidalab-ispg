@@ -46,50 +46,53 @@ OrcaBaseWorkChain = WorkflowFactory("orca.base")
 
 from aiida.common import CalcInfo, CodeInfo
 
+from ..nto.parsercalcfunction import parse_orca_output
 
-class OrcaPlotCalculation(CalcJob):
+from ..nto.subworkchains import NTOProcessingWorkChain
+
+# class OrcaPlotCalculation(CalcJob):
     
-    def _build_process_label(self) -> str:
-        return "NTO->CUBE workflow"
+#     def _build_process_label(self) -> str:
+#         return "NTO->CUBE workflow"
 
-    @classmethod
-    def define(cls, spec):
-        super().define(spec)
+#     @classmethod
+#     def define(cls, spec):
+#         super().define(spec)
 
-        spec.input('code', valid_type=Code)
-        spec.input('nto_file', valid_type=SinglefileData)
-        spec.input('plot_input', valid_type=SinglefileData)
+#         spec.input('code', valid_type=Code)
+#         spec.input('nto_file', valid_type=SinglefileData)
+#         spec.input('plot_input', valid_type=SinglefileData)
 
-        spec.inputs['metadata']['options']['resources'].default = {
-            "num_machines": 1,
-            "num_mpiprocs_per_machine": 1,
-        }
+#         spec.inputs['metadata']['options']['resources'].default = {
+#             "num_machines": 1,
+#             "num_mpiprocs_per_machine": 1,
+#         }
 
-        spec.inputs['metadata']['options']['withmpi'].default = False
+#         spec.inputs['metadata']['options']['withmpi'].default = False
 
-        spec.output('retrieved')
+#         spec.output('retrieved')
 
 
-    def prepare_for_submission(self, folder):
+#     def prepare_for_submission(self, folder):
 
-        with self.inputs.nto_file.open(mode='rb') as handle:
-            folder.create_file_from_filelike(handle, 'input.nto')
+#         with self.inputs.nto_file.open(mode='rb') as handle:
+#             folder.create_file_from_filelike(handle, 'input.nto')
 
-        with self.inputs.plot_input.open(mode='rb') as handle:
-            folder.create_file_from_filelike(handle, 'input')
+#         with self.inputs.plot_input.open(mode='rb') as handle:
+#             folder.create_file_from_filelike(handle, 'input')
 
-        codeinfo = CodeInfo()
-        codeinfo.code_uuid = self.inputs.code.uuid
-        codeinfo.cmdline_params = ['input.nto', '-i']
-        codeinfo.stdin_name = 'input'
+#         codeinfo = CodeInfo()
+#         codeinfo.code_uuid = self.inputs.code.uuid
+#         codeinfo.cmdline_params = ['input.nto', '-i']
+#         codeinfo.stdin_name = 'input'
 
-        calcinfo = CalcInfo()
-        calcinfo.codes_info = [codeinfo]
+#         calcinfo = CalcInfo()
+#         calcinfo.codes_info = [codeinfo]
 
-        # files to retrieve
-        calcinfo.retrieve_list = ['*.cube']
+#         # files to retrieve
+#         calcinfo.retrieve_list = ['*.cube']
 
-        return calcinfo
+#         return calcinfo
 
 
 class OrcaExcitationWorkChain(OrcaBaseWorkChain):
@@ -208,7 +211,9 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
             ),
             cls.excite,
             cls.inspect_excitation,
-            cls.nto_to_cube,
+            # cls.nto_to_cube,
+            cls.nto_parser,
+            cls.nto_convert,
             if_(cls.should_run_wigner)(
                 cls.wigner_sampling,
                 cls.wigner_excite,
@@ -249,30 +254,60 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
 
         calc_exc = self.submit(OrcaExcitationWorkChain, **inputs)
         calc_exc.label = "franck-condon-excitation"
-        
         return ToContext(calc_exc=calc_exc)   
 
-    def nto_to_cube(self):
+    # def nto_to_cube(self):
+        
+    #     # with self.ctx.calc_exc.outputs.retrieved.base.repository.open(
+    #     #     "aiida.s1.nto", "rb"
+    #     # ) as handler:
+    #     #     nto_file = SinglefileData(handler)
 
-        with self.ctx.calc_exc.outputs.retrieved.base.repository.open(
-            "aiida.s1.nto", "rb"
-        ) as handler:
-            nto_file = SinglefileData(handler)
+    #     # plot_input = SinglefileData.from_string(
+    #     #     "1\n1\n3\n0\n4\n120\n5\n7\n2\n4\n10\n11"
+    #     # )
 
-        plot_input = SinglefileData.from_string(
-            "1\n1\n3\n0\n4\n120\n5\n7\n2\n4\n10\n11"
-        )
+    #     # inputs = {
+    #     #     "code": self.inputs.plot_code,
+    #     #     "nto_file": nto_file,
+    #     #     "plot_input": plot_input,
+    #     # }
 
-        inputs = {
-            "code": self.inputs.plot_code,
-            "nto_file": nto_file,
-            "plot_input": plot_input,
-        }
+    #     # calc = self.submit(OrcaPlotCalculation, **inputs)
 
-        calc = self.submit(OrcaPlotCalculation, **inputs)
+    #     # return ToContext(calc_cube=calc)
+    def nto_parser(self):
+        self.ctx.relevant_dict = parse_orca_output(self.ctx.calc_exc.outputs.retrieved, "aiida.out", 5.0)
+        #self.out("transition_info", self.ctx.relevant_dict)
 
-        return ToContext(calc_cube=calc)
+    def nto_convert(self):
+        builder = NTOProcessingWorkChain.get_builder()
+        builder.nto_folder = self.ctx.calc_exc.outputs.retrieved
+        #Returns a folder containing all of the compressed cube files.
+        cube_folder = FolderData()
+        #Create a list of tuples containing relevant mo data for each excitation. 
+        relevant_items = list(self.ctx.relevant_dict.items())
+        #Iterating through the list.
+        for excitation in relevant_items:
+            #Set excitation.
+            s=excitation[0]
+            builder.s = s
+            for electron_hole_pair in excitation[1]:
 
+                for moa in electron_hole_pair[0]:
+                    #Set specific mo.
+                    mo = moa[:-1]
+                    builder.mo = mo
+                    #Run not ideal here but fine for the moment.
+                    results = run(NTOProcessingWorkChain, builder)
+                    for label, value in results.items():
+                        print(value)
+                        with value.open(mode="rb") as file:
+                            cube_folder.put_object_from_filelike(file, path=("s"+s+"."+mo))
+        self.ctx.foldertest = cube_folder
+        cube_folder.store()
+        #Output where on the database the compressed files are stored.
+        self.report(f"Cube folder PK: {cube_folder.pk}")
 
     def wigner_sampling(self):
         self.report(f"Generating {self.inputs.nwigner.value} Wigner geometries")
