@@ -124,17 +124,17 @@ def parse_orca_output(nto_folder, filename, threshold=0, states="all", nto=True)
     #file not found -> exit here
     except IOError:
         print(f"'{filename}'" + " not found")
-        sys.exit(1)
+        return {}
 
     #no UV data in orca.out -> exit here
     if found_uv_section == False:
         print(f"'{specstring_start}'" + " not found in " + f"'{filename}'")
-        sys.exit(1)
+        return {}
         
     #no NTO data in orca.out -> exit here
     if nto == True and found_nto == False:
         print(f"'{nto_string_start}'" + " not found in " + f"'{filename}'")
-        sys.exit(1)
+        return {}
 
     #build selected_statedict from statedict with selected states
     try:
@@ -152,7 +152,7 @@ def parse_orca_output(nto_folder, filename, threshold=0, states="all", nto=True)
                     selected_statedict[elements]=statedict[elements]
     except KeyError:
         print("Warning! State(s) not present. Exit.")
-        sys.exit(1)
+        return {}
                 
     #remove transitions below threshold from selected_statedict
     for elements in selected_statedict:
