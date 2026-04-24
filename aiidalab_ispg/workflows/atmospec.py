@@ -211,9 +211,8 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
             ),
             cls.excite,
             cls.inspect_excitation,
-            # cls.nto_to_cube,
-            cls.nto_parser,
-            cls.nto_convert,
+            cls.nto_calc,
+            cls.nto_collect,
             if_(cls.should_run_wigner)(
                 cls.wigner_sampling,
                 cls.wigner_excite,
@@ -276,35 +275,51 @@ class OrcaWignerSpectrumWorkChain(WorkChain):
     #     # calc = self.submit(OrcaPlotCalculation, **inputs)
 
     #     # return ToContext(calc_cube=calc)
-    def nto_parser(self):
-        self.ctx.relevant_dict = parse_orca_output(self.ctx.calc_exc.outputs.retrieved, "aiida.out", 5.0)
-        #self.out("transition_info", self.ctx.relevant_dict)
-
-    def nto_convert(self):
-        builder = NTOProcessingWorkChain.get_builder()
-        builder.nto_folder = self.ctx.calc_exc.outputs.retrieved
+    def nto_calc(self):
+        #Check ORCA output for NTOs.
+        relevant_dict = parse_orca_output(self.ctx.calc_exc.outputs.retrieved, "aiida.out", 5.0)
+        #This dictionary is also used by the visualiser to create the dropdown menus (not implemented yet).
+        #self.out("transition_info", relevant_dict)
+        #Dictionary to store the NTOProcessingWorkChain PKs
+        nto_processes = {}
         #Returns a folder containing all of the compressed cube files.
         cube_folder = FolderData()
         #Create a list of tuples containing relevant mo data for each excitation. 
-        relevant_items = list(self.ctx.relevant_dict.items())
+        relevant_items = list(relevant_dict.items())
         #Iterating through the list.
         for excitation in relevant_items:
             #Set excitation.
             s=excitation[0]
-            builder.s = s
             for electron_hole_pair in excitation[1]:
-
                 for moa in electron_hole_pair[0]:
+                    builder = NTOProcessingWorkChain.get_builder()
+                    builder.nto_folder = self.ctx.calc_exc.outputs.retrieved
+                    builder.s = s
                     #Set specific mo.
                     mo = moa[:-1]
                     builder.mo = mo
-                    #Run not ideal here but fine for the moment.
-                    results = run(NTOProcessingWorkChain, builder)
-                    for label, value in results.items():
-                        print(value)
-                        with value.open(mode="rb") as file:
-                            cube_folder.put_object_from_filelike(file, path=("s"+s+"."+mo))
-        self.ctx.foldertest = cube_folder
+                    #Submit the workchain.
+                    results = self.submit(NTOProcessingWorkChain, builder)
+                    #Add the PK to the dictionary.
+                    nto_processes["s"+s+"_"+mo] = results
+        #save the dictionary keys for later use.
+        self.ctx.nto_keys = list(nto_processes.keys())
+        #Move to next step when all ntos are processed.
+        return self.to_context(**nto_processes)  
+                    
+                    
+
+        
+
+    def nto_collect(self):
+        #Create folder to contain cubes
+        cube_folder = FolderData()
+        #Iterate through the outputs of the nto processing workchain.
+        for key in self.ctx.nto_keys:
+            node = self.ctx.get(key)
+            if "compressed_cube" in node.outputs:     
+                with node.outputs.compressed_cube.open(mode="rb") as file:
+                    cube_folder.put_object_from_filelike(file, path=(key))
         cube_folder.store()
         #Output where on the database the compressed files are stored.
         self.report(f"Cube folder PK: {cube_folder.pk}")
