@@ -1,57 +1,29 @@
+# Modified from https://github.com/radi0sus/orca_st
+
 from aiida.engine import calcfunction
-from aiida.orm import Dict, Float, Str, Bool
+from aiida.orm import Dict
+
+import re
 
 @calcfunction
-def parse_orca_output(nto_folder, filename, threshold=0, states="all", nto=True):    
-    # -*- coding: utf-8 -*-
-    '''
-    # orca-st
-    '''
-
-    import sys                              #system
-    import re                               #regular expressions
-
-    #remove comment in case you get an encoding error when saving the output to a file with ">" under windows
-    #alternatively replace 'cm⁻¹' with 'cm-1' in the table header (close to the end of script)
-    #alternatively you can configure the windows console with "set PYTHONIOENCODING=utf-8" before starting the script
-    #replace 'cm⁻¹' with 'cm-1' for pdf file conversion with pandoc in case of unicode issues
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')                                                     
-
+def parse_orca_output(nto_folder, filename="aiida.out", threshold=0, states="all"):    
+                                                        
     #Convert from Aiida nodes to python datatypes if required.
-    if hasattr(filename, "value"):
-        filename = filename.value
-    if hasattr(threshold, "value"):
-        threshold = threshold.value
-    if hasattr(states, "value"):
-        states = states.value
-    if hasattr(nto, "value"):
-        nto = nto.value
+    filename = filename.value
+    threshold = threshold.value
+    states = states.value
 
     # global constants
-    found_uv_section = False                                                                 #check for uv data in out
-    specstring_start = 'ABSORPTION SPECTRUM VIA TRANSITION ELECTRIC DIPOLE MOMENTS'          #check orca.out from here
-    specstring_end = 'ABSORPTION SPECTRUM VIA TRANSITION VELOCITY DIPOLE MOMENTS'            #stop reading orca.out from here
     state_string_start = 'TD-DFT/TDA EXCITED STATES'                                         #check for states from here
     state_string_end = 'TD-DFT/TDA-EXCITATION SPECTRA'                                       #stop reading states from here
     nto_string_start ='NATURAL TRANSITION ORBITALS'                                          #NTOs start here
     found_nto = False                                                                        #found NTOs in orca.out
-    #for ORCA 6
-    state = 0                                                                                #ORCA 6 does not list the state in the table
-    orca6 = False                                                                            #for including transitions in case of ORCA 6 on request
 
     #global lists
-    statelist = list()            #mode
-    energylist = list()           #energy cm-1
-    intenslist = list()           #fosc
-    nmlist = list()               #wavelength 
     orblist = list()              #list of orbital -> orbital transition
     statedict = dict()            #dictionary of states with all transitions
     selected_statedict = dict()   #dictionary of selected states with all transitions and or with those above the threshold
-    md_table = list()             #table for the markdown output
-    #for ORCA 6
-    #in ORCA 6 there is no state given in the list
-    translist = list()
+
     #for NTO
     nto_orblist=list()            #list of orbital -> orbital transition for NTOs
     nto_statedict=dict()          #dictionary of states with all transitions for NTOs
@@ -105,51 +77,26 @@ def parse_orca_output(nto_folder, filename, threshold=0, states="all", nto=True)
                         nto_statedict[match_state_nto.group(1)] = nto_orblist
                         nto_orblist=[] 
                 
-                if specstring_start in line:
-                #found UV data in orca.out
-                    found_uv_section=True
-                    for line in input_file:
-                        #stop exctract text 
-                        if specstring_end in line:
-                            break
-                        #only recognize lines that start with number
-                        #split line into 4 lists state, energy, nm, intensities
-                        #line should start with a number
-                        if re.search(r"^\s{1,}\d+\s{1,}\d",line): 
-                            statelist.append(int(line.strip().split()[0])) 
-                            energylist.append(float(line.strip().split()[1]))
-                            nmlist.append(float(line.strip().split()[2]))
-                            intenslist.append(float(line.strip().split()[3]))
-
     #file not found -> exit here
     except IOError:
         print(f"'{filename}'" + " not found")
         return {}
-
-    #no UV data in orca.out -> exit here
-    if found_uv_section == False:
-        print(f"'{specstring_start}'" + " not found in " + f"'{filename}'")
-        return {}
         
     #no NTO data in orca.out -> exit here
-    if nto == True and found_nto == False:
+    if found_nto == False:
         print(f"'{nto_string_start}'" + " not found in " + f"'{filename}'")
         return {}
 
     #build selected_statedict from statedict with selected states
     try:
         if states == 'all':
-            if nto:
-                selected_statedict = nto_statedict
-            else:
-                selected_statedict = statedict
+            selected_statedict = nto_statedict
+
         elif re.search(r"\d",states):
             matchstateslist=(re.findall(r"\d+",states))
             for elements in matchstateslist:
-                if nto:
-                    selected_statedict[elements]=nto_statedict[elements]
-                else:
-                    selected_statedict[elements]=statedict[elements]
+                selected_statedict[elements]=nto_statedict[elements]
+
     except KeyError:
         print("Warning! State(s) not present. Exit.")
         return {}
