@@ -19,9 +19,9 @@ from .input_widgets import (
     GroundStateSettings,
     MolecularGeometrySettings,
     MoleculeSettings,
+    OrbitalSettings,
     ResourceSelectionWidget,
     WignerSamplingSettings,
-    OrbitalSettings,
 )
 from .optimization_steps import OptimizationParameters
 from .steps import SubmitWorkChainStepBase, ViewWorkChainStatusStep
@@ -40,7 +40,7 @@ class AtmospecParameters(OptimizationParameters):
     tddft_functional: str
     nwigner: int
     wigner_low_freq_thr: float
-        
+
     calculate_orbitals: bool
 
 
@@ -57,7 +57,6 @@ DEFAULT_ATMOSPEC_PARAMETERS = AtmospecParameters(
     tddft_functional="wB97X-D4",
     nwigner=0,
     wigner_low_freq_thr=100.0,
-    
     calculate_orbitals=True,
 )
 
@@ -86,14 +85,14 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         )
 
         self.wigner_settings = WignerSamplingSettings()
-        
+
         self.orbital_settings = OrbitalSettings()
 
         self.codes_selector = CodeSettings()
         self.resources_settings = ResourceSelectionWidget()
 
         self.codes_selector.orca.observe(self._update_state, "value")
-        
+
         self.codes_selector.orca_plot.observe(self._update_state, "value")
 
         # Set defaults
@@ -105,7 +104,6 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
             self.wigner_settings,
             self.molecule_settings,
             self.excited_state_settings,
-            
             self.orbital_settings,
         ]
         grid_layout = ipw.Layout(
@@ -133,7 +131,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         if self.codes_selector.orca.value is None:
             return False
         return True
-    
+
         if self.codes_selector.orca_plot.value is None:
             return False
         return True
@@ -203,7 +201,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         self.excited_state_settings.basis.value = parameters.es_basis
         self.wigner_settings.nwigner.value = parameters.nwigner
         self.wigner_settings.wigner_low_freq_thr.value = parameters.wigner_low_freq_thr
-        
+
         self.orbital_settings.calculate_orbitals.value = parameters.calculate_orbitals
 
         # Infer the value of the gs_sync checkbox
@@ -230,8 +228,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
             nstates=self.excited_state_settings.nstates.value,
             nwigner=self.wigner_settings.nwigner.value,
             wigner_low_freq_thr=self.wigner_settings.wigner_low_freq_thr.value,
-            
-            calculate_orbitals = self.orbital_settings.calculate_orbitals.value,
+            calculate_orbitals=self.orbital_settings.calculate_orbitals.value,
         )
 
     @traitlets.observe("process")
@@ -299,8 +296,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         mdci_params["input_blocks"]["mdci"] = {
             "nroots": nroots,
             "maxcore": MEMORY_PER_CPU,
-            
-#             Calculate nto flag
+            #             Calculate nto flag
             "donto": donto,
         }
         # TODO: For efficiency reasons, in might not be necessary to calculated left-vectors
@@ -319,12 +315,10 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         tddft_params["input_blocks"]["tddft"] = {
             "nroots": nroots,
             "maxcore": MEMORY_PER_CPU,
-            
-#             Calculate nto flag
+            #             Calculate nto flag
             "donto": donto,
         }
-        
-        
+
         if es_method == ExcitedStateMethod.TDDFT:
             tddft_params["input_blocks"]["tddft"]["tda"] = "false"
         return tddft_params
@@ -350,11 +344,11 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         builder = AtmospecWorkChain.get_builder()
 
         builder.code = load_code(self.codes_selector.orca.value)
-        
+
         builder.plot_code = load_code(self.codes_selector.orca_plot.value)
-        
+
         builder.structure = self.input_structure
-        
+
         base_orca_parameters = self.build_base_orca_params(bp)
         gs_opt_parameters = self._add_optimization_orca_params(
             base_orca_parameters, basis=bp.basis, gs_method=bp.method
@@ -369,7 +363,6 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
                 basis=bp.es_basis,
                 functional=bp.tddft_functional,
                 nroots=bp.nstates,
-                
                 donto=bp.calculate_orbitals,
             )
         elif bp.excited_method in (
@@ -381,7 +374,6 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
                 basis=bp.es_basis,
                 mdci_method=bp.excited_method,
                 nroots=bp.nstates,
-                
                 donto=bp.calculate_orbitals,
             )
         else:
@@ -390,7 +382,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
 
         builder.optimize = bp.optimize
         builder.opt.orca.parameters = gs_opt_parameters
-        builder.exc.orca.parameters = es_parameters        
+        builder.exc.orca.parameters = es_parameters
 
         num_proc = self.resources_settings.num_mpi_tasks.value
         if num_proc > 1:
@@ -413,7 +405,7 @@ class SubmitAtmospecAppWorkChainStep(SubmitWorkChainStepBase):
         # Fetch GBW file from optimization step, to be used as a guess
         # for subsequent excited state calculations.
         builder.opt.orca.metadata.options.additional_retrieve_list = ["aiida.gbw"]
-        
+
         # Retrieve .nto and .cube files
         builder.exc.orca.metadata.options.additional_retrieve_list = ["*.nto", "*.cube"]
 

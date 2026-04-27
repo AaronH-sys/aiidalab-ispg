@@ -81,6 +81,7 @@ This should open your default text editor.
 Copy-paste the following profile configuration (substitute path to ORCA and the Docker image name if needed)
 ```
 port = 8888
+default_apps = [ "aiidalab-ispg@git+https://github.com/ispg-group/aiidalab-ispg.git@main",]
 system_user = "jovyan"
 image = "ghcr.io/ispg-group/atmospec:latest"
 home_mount = "aiidalab_atmospec_home"

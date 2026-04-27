@@ -303,7 +303,6 @@ class OrbitalSettings(ipw.VBox):
     _CALCULATE_ORBITALS_DEFAULT = True
 
     def __init__(self, **kwargs):
-        style = {"description_width": "initial"}
         layout = ipw.Layout(max_width="250px")
 
         self.calculate_orbitals = ipw.Checkbox(
@@ -313,12 +312,11 @@ class OrbitalSettings(ipw.VBox):
             layout=layout,
         )
 
-        super().__init__(
-            children=[self.title, self.calculate_orbitals]
-        )
+        super().__init__(children=[self.title, self.calculate_orbitals])
 
     def reset(self):
         self.charge.value = self._CALCULATE_ORBITALS_DEFAULT
+
 
 class CodeSettings(ipw.VBox):
     codes_title = ipw.HTML(
@@ -333,19 +331,19 @@ class CodeSettings(ipw.VBox):
     # In the order of priority, we will select the default ORCA code from these
     # First, we try to use SLURM on local machine, if available
     _DEFAULT_ORCA_CODES = ("orca@slurm", "orca@localhost")
-    _DEFAULT_ORCA_PLOT_CODES = ("orca_plot@localhost")
+    _DEFAULT_ORCA_PLOT_CODES = "orca_plot@localhost"
 
     def __init__(self, **kwargs):
         self.orca = ComputationalResourcesWidget(
             default_calc_job_plugin="orca.orca",
             description="ORCA program",
         )
-                           
+
         self.orca_plot = ComputationalResourcesWidget(
             default_calc_job_plugin="orca.orca_plot",
             description="ORCA plotting program",
         )
-            
+
         super().__init__(
             children=[
                 self.codes_title,
@@ -376,7 +374,7 @@ class CodeSettings(ipw.VBox):
 
         if not self.orca.value:
             print("WARNING: ORCA code has not been found locally")
-            
+
         for code_label in self._DEFAULT_ORCA_PLOT_CODES:
             try:
                 self.orca_plot.value = load_code(code_label).uuid
